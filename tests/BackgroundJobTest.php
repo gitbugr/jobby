@@ -205,48 +205,6 @@ class BackgroundJobTest extends \PHPUnit_Framework_TestCase
     }
 
     /**
-     * @covers ::mail
-     */
-    public function testNotSendMailOnMissingRecipients()
-    {
-        $helper = $this->getMock('Jobby\Helper', ['sendMail']);
-        $helper->expects($this->never())
-            ->method('sendMail')
-        ;
-
-        $this->runJob(
-            [
-                'closure'    => function () {
-                    return false;
-                },
-                'recipients' => '',
-            ],
-            $helper
-        );
-    }
-
-    /**
-     * @covers ::mail
-     */
-    public function testMailShouldTriggerHelper()
-    {
-        $helper = $this->getMock('Jobby\Helper', ['sendMail']);
-        $helper->expects($this->once())
-            ->method('sendMail')
-        ;
-
-        $this->runJob(
-            [
-                'closure'    => function () {
-                    return false;
-                },
-                'recipients' => 'test@example.com',
-            ],
-            $helper
-        );
-    }
-
-    /**
      * @covers ::checkMaxRuntime
      */
     public function testCheckMaxRuntime()

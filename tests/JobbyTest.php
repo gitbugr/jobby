@@ -226,8 +226,6 @@ class JobbyTest extends \PHPUnit_Framework_TestCase
         $jobby = new Jobby();
         $config = $jobby->getDefaultConfig();
 
-        $this->assertNull($config['recipients']);
-        $this->assertEquals('sendmail', $config['mailer']);
         $this->assertNull($config['runAs']);
         $this->assertNull($config['output']);
         $this->assertEquals('Y-m-d H:i:s', $config['dateFormat']);

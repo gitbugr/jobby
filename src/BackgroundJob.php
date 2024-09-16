@@ -2,49 +2,38 @@
 
 namespace Jobby;
 
-use Opis\Closure\SerializableClosure;
+use GuzzleHttp\Exception\GuzzleException;
+use JsonException;
+use RuntimeException;
+use Throwable;
 
 class BackgroundJob
 {
     /**
      * @var Helper
      */
-    protected $helper;
+    protected Helper $helper;
 
     /**
      * @var string
      */
-    protected $job;
+    protected string $job;
 
     /**
      * @var string
      */
-    protected $tmpDir;
+    protected string $tmpDir;
 
     /**
      * @var array
      */
-    protected $config;
+    protected array $config;
 
-    /**
-     * @param string $job
-     * @param array  $config
-     * @param Helper $helper
-     */
-    public function __construct($job, array $config, Helper $helper = null)
+    public function __construct(string $job, array $config, Helper $helper = null)
     {
         $this->job = $job;
         $this->config = $config + [
-            'recipients'     => null,
-            'mailer'         => null,
             'maxRuntime'     => null,
-            'smtpHost'       => null,
-            'smtpPort'       => null,
-            'smtpUsername'   => null,
-            'smtpPassword'   => null,
-            'smtpSender'     => null,
-            'smtpSenderName' => null,
-            'smtpSecurity'   => null,
             'runAs'          => null,
             'environment'    => null,
             'runOnHost'      => null,
@@ -58,18 +47,22 @@ class BackgroundJob
             'slackChannel'   => null,
             'slackUrl'       => null,
             'slackSender'    => null,
-            'mailSubject'    => null,
         ];
 
-        $this->config['output_stdout'] = $this->config['output_stdout'] === null ? $this->config['output'] : $this->config['output_stdout'];
-        $this->config['output_stderr'] = $this->config['output_stderr'] === null ? $this->config['output'] : $this->config['output_stderr'];
+        $this->config['output_stdout'] = $this->config['output_stdout'] ?? $this->config['output'];
+        $this->config['output_stderr'] = $this->config['output_stderr'] ?? $this->config['output'];
 
         $this->helper = $helper ?: new Helper();
 
         $this->tmpDir = $this->helper->getTempDir();
     }
 
-    public function run()
+    /**
+     * @throws Exception
+     * @throws GuzzleException
+     * @throws JsonException
+     */
+    public function run(): void
     {
         $lockFile = $this->getLockFile();
 
@@ -108,26 +101,21 @@ class BackgroundJob
 
             // remove log file if empty
             $logfile = $this->getLogfile();
-            if (is_file($logfile) && (filesize($logfile) <= 2 || file_get_contents($logfile) == "[]")) {
+            if (is_file($logfile) && (filesize($logfile) <= 2 || file_get_contents($logfile) === "[]")) {
                 unlink($logfile);
             }
         }
     }
 
-    /**
-     * @return array
-     */
-    public function getConfig()
+    public function getConfig(): array
     {
         return $this->config;
     }
 
     /**
-     * @param string $lockFile
-     *
      * @throws Exception
      */
-    protected function checkMaxRuntime($lockFile)
+    protected function checkMaxRuntime(string $lockFile): void
     {
         $maxRuntime = $this->config['maxRuntime'];
         if ($maxRuntime === null) {
@@ -147,35 +135,11 @@ class BackgroundJob
     }
 
     /**
-     * @param string $message
-     * Deprecated
+     * @throws GuzzleException
+     * @throws JsonException
      */
-    protected function mail($message)
+    protected function notify(string $message): void
     {
-        if (empty($this->config['recipients'])) {
-            return;
-        }
-
-        $this->helper->sendMail(
-            $this->job,
-            $this->config,
-            $message
-        );
-    }
-
-    /**
-     * @param string $message
-     */
-    protected function notify($message)
-    {
-        if (!empty($this->config['recipients'])) {
-            $this->helper->sendMail(
-                $this->job,
-                $this->config,
-                $message
-            );
-        }
-
         if (!empty($this->config['mattermostUrl'])) {
             $this->helper->sendMattermostAlert(
                 $this->job,
@@ -195,11 +159,7 @@ class BackgroundJob
 
     }
 
-    /**
-     * @param string $output
-     * @return string
-     */
-    protected function getLogfile($output = 'stdout')
+    protected function getLogfile(string $output = 'stdout'): string
     {
         $logfile = $this->config['output_'.$output];
         if ($logfile === null) {
@@ -208,17 +168,14 @@ class BackgroundJob
 
 
         $logs = dirname($logfile);
-        if (!file_exists($logs)) {
-            mkdir($logs, 0755, true);
+        if (!is_dir($logs) && !mkdir($logs, 0755, true) && !is_dir($logs)) {
+            throw new RuntimeException(sprintf('Directory "%s" was not created', $logs));
         }
 
         return $logfile;
     }
 
-    /**
-     * @return string
-     */
-    protected function getLockFile()
+    protected function getLockFile(): string
     {
         $tmp = $this->tmpDir;
         $job = $this->helper->escape($this->job);
@@ -227,39 +184,27 @@ class BackgroundJob
             $env = $this->helper->escape($this->config['environment']);
 
             return "$tmp/$env-$job.lck";
-        } else {
-            return "$tmp/$job.lck";
         }
+
+        return "$tmp/$job.lck";
     }
 
-    /**
-     * @return bool
-     */
-    protected function shouldRun()
+    protected function shouldRun(): bool
     {
         if (!$this->config['enabled']) {
             return false;
         }
 
-        if (($haltDir = $this->config['haltDir']) !== null) {
-            if (file_exists($haltDir . DIRECTORY_SEPARATOR . $this->job)) {
-                return false;
-            }
-        }
-
-        $host = $this->helper->getHost();
-        if (strcasecmp($this->config['runOnHost'], $host) != 0) {
+        if (($haltDir = $this->config['haltDir']) !== null && file_exists($haltDir . DIRECTORY_SEPARATOR . $this->job)) {
             return false;
         }
 
-        return true;
+        $host = $this->helper->getHost();
+
+        return strcasecmp($this->config['runOnHost'], $host) === 0;
     }
 
-    /**
-     * @param string $message
-     * @param string $output
-     */
-    protected function log($message, $output = 'stdout')
+    protected function log(string $message, string $output = 'stdout'): void
     {
         $now = date($this->config['dateFormat'], $_SERVER['REQUEST_TIME']);
 
@@ -268,24 +213,26 @@ class BackgroundJob
         }
     }
 
-    protected function runFunction()
+    /**
+     * @throws Exception
+     */
+    protected function runFunction(): void
     {
+        /** @noinspection UnserializeExploitsInspection */
         $command = unserialize($this->config['closure']);
 
         ob_start();
         try {
             $retval = $command();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($logfile = $this->getLogfile('stderr')) {
-                file_put_contents($this->getLogfile('stderr'), "Error! " . $e->getMessage() . "\n", FILE_APPEND);
+                file_put_contents($logfile, "Error! " . $e->getMessage() . "\n", FILE_APPEND);
             }
             $retval = $e->getMessage();
         }
         $content = ob_get_contents();
-        if ($logfile = $this->getLogfile()) {
-            if(strlen($content) > 2){
-                file_put_contents($this->getLogfile(), $content, FILE_APPEND);
-            }
+        if (($logfile = $this->getLogfile()) && strlen($content) > 2){
+            file_put_contents($logfile, $content, FILE_APPEND);
         }
         ob_end_clean();
 
@@ -294,7 +241,10 @@ class BackgroundJob
         }
     }
 
-    protected function runFile()
+    /**
+     * @throws Exception
+     */
+    protected function runFile(): void
     {
         // If job should run as another user, we must be on *nix and
         // must have sudo privileges.

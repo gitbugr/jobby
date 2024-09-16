@@ -9,66 +9,31 @@ use Symfony\Component\Process\PhpExecutableFinder;
 
 class Jobby
 {
-    /**
-     * @var array
-     */
-    protected $config = [];
+    protected array $config = [];
 
-    /**
-     * @var string
-     */
-    protected $script;
+    protected string $script;
 
-    /**
-     * @var array
-     */
-    protected $jobs = [];
+    protected array $jobs = [];
 
-    /**
-     * @var Helper
-     */
-    protected $helper;
+    protected Helper $helper;
 
-    /**
-     * @param array $config
-     */
     public function __construct(array $config = [])
     {
-        $this->setConfig($this->getDefaultConfig());
-        $this->setConfig($config);
+        $this->setConfig($config + $this->getDefaultConfig());
 
-        $this->script = realpath(__DIR__ . '/../bin/run-job');
+        $this->script = dirname(__DIR__) . '/bin/run-job';
     }
 
-    /**
-     * @return Helper
-     */
-    protected function getHelper()
+    protected function getHelper(): Helper
     {
-        if ($this->helper === null) {
-            $this->helper = new Helper();
-        }
-
-        return $this->helper;
+        return $this->helper ??= new Helper();
     }
 
-    /**
-     * @return array
-     */
-    public function getDefaultConfig()
+    public function getDefaultConfig(): array
     {
         return [
-            'jobClass'       => 'Jobby\BackgroundJob',
-            'recipients'     => null,
-            'mailer'         => 'sendmail',
+            'jobClass'       => BackgroundJob::class,
             'maxRuntime'     => null,
-            'smtpHost'       => null,
-            'smtpPort'       => 25,
-            'smtpUsername'   => null,
-            'smtpPassword'   => null,
-            'smtpSender'     => 'jobby@' . $this->getHelper()->getHost(),
-            'smtpSenderName' => 'jobby',
-            'smtpSecurity'   => null,
             'runAs'          => null,
             'environment'    => $this->getHelper()->getApplicationEnv(),
             'runOnHost'      => $this->getHelper()->getHost(),
@@ -83,30 +48,20 @@ class Jobby
             'slackChannel'   => null,
             'slackUrl'       => null,
             'slackSender'    => null,
-            'mailSubject'    => null,
         ];
     }
 
-    /**
-     * @param array
-     */
-    public function setConfig(array $config)
+    public function setConfig(array $config): void
     {
         $this->config = array_merge($this->config, $config);
     }
 
-    /**
-     * @return array
-     */
-    public function getConfig()
+    public function getConfig(): array
     {
         return $this->config;
     }
 
-    /**
-     * @return array
-     */
-    public function getJobs()
+    public function getJobs(): array
     {
         return $this->jobs;
     }
@@ -114,12 +69,9 @@ class Jobby
     /**
      * Add a job.
      *
-     * @param string $job
-     * @param array  $config
-     *
      * @throws Exception
      */
-    public function add($job, array $config)
+    public function add(string $job, array $config): void
     {
         if (empty($config['schedule'])) {
             throw new Exception("'schedule' is required for '$job' job");
@@ -149,8 +101,10 @@ class Jobby
 
     /**
      * Run all jobs.
+     *
+     * @throws Exception
      */
-    public function run()
+    public function run(): void
     {
         $isUnix = ($this->helper->getPlatform() === Helper::UNIX);
 
@@ -160,7 +114,7 @@ class Jobby
 
         $scheduleChecker = new ScheduleChecker(new DateTimeImmutable("now"));
         foreach ($this->jobs as $jobConfig) {
-            list($job, $config) = $jobConfig;
+            [$job, $config] = $jobConfig;
             if (!$scheduleChecker->isDue($config['schedule'])) {
                 continue;
             }
@@ -172,11 +126,7 @@ class Jobby
         }
     }
 
-    /**
-     * @param string $job
-     * @param array  $config
-     */
-    protected function runUnix($job, array $config)
+    protected function runUnix(string $job, array $config): void
     {
         $command = $this->getExecutableCommand($job, $config);
         $binary = $this->getPhpBinary();
@@ -186,11 +136,7 @@ class Jobby
     }
 
     // @codeCoverageIgnoreStart
-    /**
-     * @param string $job
-     * @param array  $config
-     */
-    protected function runWindows($job, array $config)
+    protected function runWindows(string $job, array $config): void
     {
         // Run in background (non-blocking). From
         // http://us3.php.net/manual/en/function.exec.php#43834
@@ -201,20 +147,14 @@ class Jobby
     }
     // @codeCoverageIgnoreEnd
 
-    /**
-     * @param string $job
-     * @param array  $config
-     *
-     * @return string
-     */
-    protected function getExecutableCommand($job, array $config)
+    protected function getExecutableCommand(string $job, array $config): string
     {
         if (isset($config['closure'])) {
             $wrapper = new SerializableClosure($config['closure']);
             $config['closure'] = serialize($wrapper);
         }
 
-        if (strpos(__DIR__, 'phar://') === 0) {
+        if (str_starts_with(__DIR__, 'phar://')) {
             $script = __DIR__ . DIRECTORY_SEPARATOR . 'BackgroundJob.php';
             return sprintf(' -r \'define("JOBBY_RUN_JOB",1);include("%s");\' "%s" "%s"', $script, $job, http_build_query($config));
         }
@@ -222,13 +162,8 @@ class Jobby
         return sprintf('"%s" "%s" "%s"', $this->script, $job, http_build_query($config));
     }
 
-    /**
-     * @return false|string
-     */
-    protected function getPhpBinary()
+    protected function getPhpBinary(): bool|string
     {
-        $executableFinder = new PhpExecutableFinder();
-
-        return $executableFinder->find();
+        return (new PhpExecutableFinder())->find();
     }
 }

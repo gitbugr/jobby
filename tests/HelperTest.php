@@ -260,47 +260,6 @@ class HelperTest extends \PHPUnit_Framework_TestCase
     }
 
     /**
-     * @covers ::sendMail
-     * @covers ::getCurrentMailer
-     */
-    public function testSendMail()
-    {
-        $mailer = $this->getSwiftMailerMock();
-        $mailer->expects($this->once())
-            ->method('send')
-        ;
-
-        $jobby = new Jobby();
-        $config = $jobby->getDefaultConfig();
-        $config['output'] = 'output message';
-        $config['recipients'] = 'a@a.com,b@b.com';
-
-        $helper = new Helper($mailer);
-        $mail = $helper->sendMail('job', $config, 'message');
-
-        $host = $helper->getHost();
-        $email = "jobby@$host";
-        $this->assertContains('job', $mail->getSubject());
-        $this->assertContains("[$host]", $mail->getSubject());
-        $this->assertEquals(1, count($mail->getFrom()));
-        $this->assertEquals('jobby', current($mail->getFrom()));
-        $this->assertEquals($email, current(array_keys($mail->getFrom())));
-        $this->assertEquals($email, current(array_keys($mail->getSender())));
-        $this->assertContains($config['output'], $mail->getBody());
-        $this->assertContains('message', $mail->getBody());
-    }
-
-    /**
-     * @return \Swift_Mailer
-     */
-    private function getSwiftMailerMock()
-    {
-        $nullTransport = new \Swift_NullTransport();
-
-        return $this->getMock('Swift_Mailer', [], [$nullTransport]);
-    }
-
-    /**
      * @return void
      */
     public function testItReturnsTheCorrectNullSystemDeviceForUnix()
